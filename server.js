@@ -1,3 +1,4 @@
+const bcrypt = require('bcrypt');
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
@@ -10,10 +11,11 @@ app.use(bodyParser.json());
 
 
 // 1. Register a new user
-app.post('/register', (req, res) => {
-    const { username, email } = req.body;
-    const sql = `INSERT INTO users (username, email) VALUES (?, ?)`;
-    db.run(sql, [username, email], function (err) {
+app.post('/register', async (req, res) => {
+    const { username, email, password } = req.body;
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const sql = `INSERT INTO users (username, email, password) VALUES (?, ?, ?)`;
+    db.run(sql, [username, email, hashedPassword], function (err) {
         if (err) {
             return res.status(400).json({ error: err.message });
         }
@@ -95,6 +97,47 @@ app.delete('/user/:id', (req, res) => {
         });
     });
 });
+
+// 7. Login user
+
+app.post('/login', (req, res) => {
+    const { emailOrUsername, password } = req.body;
+
+    if (!emailOrUsername || !password) {
+        return res.status(400).json({ error: "Missing email/username or password" });
+    }
+
+    const sql = `
+        SELECT * FROM users 
+        WHERE username = ? OR email = ?
+        LIMIT 1
+    `;
+
+    db.get(sql, [emailOrUsername, emailOrUsername], async (err, user) => {
+        if (err) {
+            return res.status(500).json({ error: "Database error" });
+        }
+        if (!user) {
+            return res.status(401).json({ error: "User not found" });
+        }
+
+        const match = await bcrypt.compare(password, user.password);
+        if (!match) {
+            return res.status(401).json({ error: "Invalid password" });
+        }
+
+        // Success! 
+        res.json({
+            message: "Login successful",
+            user: {
+                id: user.id,
+                username: user.username,
+                email: user.email
+            }
+        });
+    });
+});
+
 
 // Start server
 app.listen(PORT, () => {
