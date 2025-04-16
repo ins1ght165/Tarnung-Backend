@@ -38,18 +38,31 @@ app.get('/user/:id', (req, res) => {
 app.post('/submit-score', (req, res) => {
     const { user_id, level_name, rating, time } = req.body;
 
-    const sql = `
-        INSERT INTO level_scores (user_id, level_name, rating, time)
-        VALUES (?, ?, ?, ?)
-        ON CONFLICT(user_id, level_name)
-        DO UPDATE SET rating = excluded.rating, time = excluded.time
-    `;
+    const selectSql = `SELECT rating, time FROM level_scores WHERE user_id = ? AND level_name = ?`;
 
-    db.run(sql, [user_id, level_name, rating, time], function (err) {
-        if (err) {
-            return res.status(400).json({ error: err.message });
+    db.get(selectSql, [user_id, level_name], (err, row) => {
+        if (err) return res.status(500).json({ error: err.message });
+
+        // No previous score? Insert new one
+        if (!row) {
+            const insertSql = `INSERT INTO level_scores (user_id, level_name, rating, time) VALUES (?, ?, ?, ?)`;
+            db.run(insertSql, [user_id, level_name, rating, time], function (err) {
+                if (err) return res.status(500).json({ error: err.message });
+                res.json({ message: "Score submitted (new)" });
+            });
         }
-        res.json({ message: 'Score submitted/updated successfully' });
+        // New score is better? Update it
+        else if (rating > row.rating || (rating === row.rating && time < row.time)) {
+            const updateSql = `UPDATE level_scores SET rating = ?, time = ? WHERE user_id = ? AND level_name = ?`;
+            db.run(updateSql, [rating, time, user_id, level_name], function (err) {
+                if (err) return res.status(500).json({ error: err.message });
+                res.json({ message: "Score updated (better)" });
+            });
+        }
+        // Otherwise do nothing
+        else {
+            res.json({ message: "Score not updated (not better)" });
+        }
     });
 });
 
